@@ -1,6 +1,7 @@
 # Build outputs
 bench
 test_simac
+tests/slimiron_stress
 
 # Object files
 *.o
