@@ -1,0 +1,24 @@
+# Build outputs
+bench
+test_simac
+
+# Object files
+*.o
+*.a
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Perf / profiling
+perf.data
+perf.data.old
+gmon.out
+callgrind.out.*
+massif.out.*
