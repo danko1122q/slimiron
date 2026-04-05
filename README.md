@@ -16,7 +16,7 @@ No external dependencies. Single header file.
 | Key | 256-bit |
 | Nonce | 96-bit (misuse-resistant via SIV) |
 | Tag | 128-bit |
-| Overhead | 28 bytes (12 synth_nonce + 16 tag) |
+| Overhead | 28 bytes (12 synth\_nonce + 16 tag) |
 | Max message | ~256 GB per (key, synth\_nonce) |
 | Stream rounds | 10 |
 | SIMAC rounds | 10 |
@@ -71,14 +71,48 @@ Wire format: `[ synth_nonce:12 ][ ciphertext:mlen ][ tag:16 ]`
 ## Build & Test
 
 ```sh
-make          # build test + bench
-make run-test # run test suite (32 tests)
+make           # build test + bench
+make run-test  # run test suite (32 tests)
 make run-bench # benchmark
 
 python3 gen_constants.py  # verify all constants
 ```
 
 Requires: C99 compiler. AVX2 detected automatically via `-march=native`.
+
+## Benchmark
+
+Measured on GitHub Codespace (4-core, 16 GB RAM), AVX2 enabled:
+
+```
+Encrypt :  192 MB/s  (AVX2)
+Decrypt :  304 MB/s  (AVX2)
+
+Encrypt :  146 MB/s  (scalar, no AVX2)
+Decrypt :  252 MB/s  (scalar, no AVX2)
+```
+
+Encrypt is slower because SIV requires an extra SIMAC pass over the plaintext.
+
+## Stress Test
+
+Independent stress test (`slimiron_stress.c`) — pure C99 scalar, no AVX2, 4 threads:
+
+```
+Iterations  : 50,000,000
+Threads     : 4
+Round-trips : 50,000,000   (0 failures)
+Tamper rej. : 99,805,354   (0 false accepts)
+Errors      : 0
+Elapsed     : ~5.3 minutes
+```
+
+Each iteration uses a random key, nonce, message (0–256 bytes), and AAD (0–64 bytes).
+Tamper tests flip a random bit in the tag and ciphertext — all correctly rejected.
+
+The stress tester is also a cross-implementation check: it re-implements Slimiron
+independently from `slimiron.h` (no shared code) and verifies all 4 spec test vectors
+produce identical output.
 
 ## Design Notes
 
@@ -88,15 +122,6 @@ Requires: C99 compiler. AVX2 detected automatically via `-march=native`.
 - **Full 256-bit key** in the sponge capacity region (never XORed with data).
 
 See `docs/slimiron_design.docx` for full design and math.
-
-## Benchmark
-
-```
-Encrypt :  146 MB/s  (scalar, no AVX2)
-Decrypt :  252 MB/s
-```
-
-Encrypt is slower because SIV requires an extra SIMAC pass over the plaintext.
 
 ## Warning
 
