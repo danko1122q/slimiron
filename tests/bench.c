@@ -25,15 +25,18 @@ int main(void) {
     for (int i=0;i<32;i++) key[i]=rand();
     for (int i=0;i<12;i++) nonce[i]=rand();
 
-    printf("Slimiron v0.2.2 benchmark\n");
+    printf("Slimiron v0.3.0 benchmark\n");
     printf("Data size : %d MB | Warmup: %d | Measured: %d\n",
            DATA_SIZE/(1024*1024), WARMUP, ITER);
+    printf("Stream rounds       : %d  (raised from 10 in v0.3.0)\n", SLIMIRON_ROUNDS);
+    printf("SIMAC rounds        : %d\n", SIMAC_ROUNDS);
     printf("SIMAC rate/capacity : %d/%d bytes\n", SIMAC_RATE_BYTES, 64-SIMAC_RATE_BYTES);
-    printf("SIV mode : enabled (+1 SIMAC pass over plaintext)\n");
+    printf("SIV mode            : enabled (+1 SIMAC pass over plaintext)\n");
+    printf("Wire overhead       : %u bytes\n", SLIMIRON_OVERHEAD);
 #if SLIM_HAS_AVX2
-    printf("XOR path : AVX2\n\n");
+    printf("XOR path            : AVX2\n\n");
 #else
-    printf("XOR path : scalar (unrolled 8x8)\n\n");
+    printf("XOR path            : scalar (unrolled 8x8)\n\n");
 #endif
 
     /* Warmup encrypt */
@@ -50,11 +53,13 @@ int main(void) {
 
     /* Warmup decrypt */
     for (int i=0;i<WARMUP;i++)
-        slimiron_aead_decrypt(out, snonce, cipher, DATA_SIZE, tag, NULL, 0, key);
+        slimiron_aead_decrypt(out, snonce, cipher, DATA_SIZE, tag, NULL, 0, key,
+                              SLIMIRON_WIRE_VERSION);
 
     double t1 = now();
     for (int i=0;i<ITER;i++)
-        slimiron_aead_decrypt(out, snonce, cipher, DATA_SIZE, tag, NULL, 0, key);
+        slimiron_aead_decrypt(out, snonce, cipher, DATA_SIZE, tag, NULL, 0, key,
+                              SLIMIRON_WIRE_VERSION);
     double dec_time = now() - t1;
 
     double enc_mb = (double)DATA_SIZE*ITER/enc_time/(1024.0*1024.0);

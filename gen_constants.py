@@ -17,7 +17,7 @@ Bootstrap method (mirrors the C bootstrap procedure):
   5. Squeeze: return state[0..N-1] as the derived constants.
 """
 
-__version__ = "0.2.2"
+__version__ = "0.3.0"
 
 # ---------------------------------------------------------------------------
 # SlimMix ARX permutation (pure Python, no imports needed)
@@ -134,7 +134,7 @@ for name, label, n in CONSTANTS:
 
 print(f"\n{'=' * 66}")
 if ok:
-    print("All constants verified.  slimiron.h v0.2.2 is consistent.")
+    print("All constants verified.  slimiron.h v0.3.0 is consistent.")
     print("No external hash library used — pure Slimiron permutation only.")
 else:
     print("VERIFICATION FAILED — update slimiron.h!")

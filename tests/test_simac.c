@@ -26,7 +26,6 @@ static int count_bits_diff(const uint8_t *a, const uint8_t *b, size_t len) {
     return diff;
 }
 
-/* ── Helper: encrypt into allocated buffer, returns 0 on success ── */
 static int do_encrypt(
     uint8_t snonce[12], uint8_t *cipher, uint8_t tag[16],
     const uint8_t *msg, size_t mlen,
@@ -43,10 +42,10 @@ static int do_decrypt(
     const uint8_t *aad, size_t alen,
     const uint8_t key[32])
 {
-    return slimiron_aead_decrypt(msg, snonce, cipher, clen, tag, aad, alen, key);
+    return slimiron_aead_decrypt(msg, snonce, cipher, clen, tag, aad, alen, key,
+                                 SLIMIRON_WIRE_VERSION);
 }
 
-/* ── Test: fixed test vector ── */
 void test_vector(void) {
     static const uint8_t key[32] = {
         0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,
@@ -65,64 +64,46 @@ void test_vector(void) {
     static const uint8_t aad[12] = {
         0x50,0x51,0x52,0x53,0xc0,0xc1,0xc2,0xc3,0xc4,0xc5,0xc6,0xc7
     };
-
     uint8_t snonce[12], cipher[33], tag[16];
     int r = do_encrypt(snonce, cipher, tag, plaintext, 33, aad, 12, key, nonce);
     check(r == 0, "vector: encrypt returns 0");
-
-    /* Decrypt and verify round-trip */
     uint8_t recovered[33];
     r = do_decrypt(recovered, snonce, cipher, 33, tag, aad, 12, key);
     check(r == 0, "vector: decrypt returns 0");
     check(memcmp(recovered, plaintext, 33) == 0, "vector: plaintext recovered");
-
-    /* Same input → same synth_nonce and ciphertext (deterministic SIV) */
     uint8_t snonce2[12], cipher2[33], tag2[16];
     do_encrypt(snonce2, cipher2, tag2, plaintext, 33, aad, 12, key, nonce);
-    check(memcmp(snonce, snonce2, 12) == 0,   "vector: synth_nonce deterministic");
-    check(memcmp(cipher, cipher2, 33) == 0,   "vector: ciphertext deterministic");
-    check(memcmp(tag,    tag2,    16) == 0,    "vector: tag deterministic");
+    check(memcmp(snonce,  snonce2,  12) == 0, "vector: synth_nonce deterministic");
+    check(memcmp(cipher,  cipher2,  33) == 0, "vector: ciphertext deterministic");
+    check(memcmp(tag,     tag2,     16) == 0, "vector: tag deterministic");
 }
 
-/* ── Test: SIV nonce-misuse resistance ── */
 void test_siv_misuse(void) {
-    uint8_t key[32], nonce[12];
-    uint8_t msg1[64], msg2[64];
-    uint8_t sn1[12], sn2[12], sn3[12];
-    uint8_t c1[64], c2[64], c3[64], tag[16];
-
-    random_bytes(key, 32);
-    random_bytes(nonce, 12);   /* SAME nonce for all three */
-    random_bytes(msg1, 64);
-    memcpy(msg2, msg1, 64); msg2[0] ^= 1;  /* differ by 1 bit */
-
+    uint8_t key[32], nonce[12], msg1[64], msg2[64];
+    uint8_t sn1[12], sn2[12], sn3[12], c1[64], c2[64], c3[64], tag[16];
+    random_bytes(key,32); random_bytes(nonce,12);
+    random_bytes(msg1,64); memcpy(msg2,msg1,64); msg2[0]^=1;
     do_encrypt(sn1, c1, tag, msg1, 64, NULL, 0, key, nonce);
-    do_encrypt(sn2, c2, tag, msg2, 64, NULL, 0, key, nonce);  /* same nonce, diff msg */
-    do_encrypt(sn3, c3, tag, msg1, 64, NULL, 0, key, nonce);  /* identical to first */
-
-    /* Different messages → different synth_nonce even with same external nonce */
-    check(memcmp(sn1, sn2, 12) != 0, "SIV misuse: diff msg → diff synth_nonce");
-    /* Same message → same synth_nonce (deterministic) */
-    check(memcmp(sn1, sn3, 12) == 0, "SIV misuse: same msg → same synth_nonce");
-    /* Different ciphertext for different messages */
-    check(memcmp(c1, c2, 64) != 0,   "SIV misuse: diff msg → diff ciphertext");
+    do_encrypt(sn2, c2, tag, msg2, 64, NULL, 0, key, nonce);
+    do_encrypt(sn3, c3, tag, msg1, 64, NULL, 0, key, nonce);
+    check(memcmp(sn1, sn2, 12) != 0, "SIV misuse: diff msg -> diff synth_nonce");
+    check(memcmp(sn1, sn3, 12) == 0, "SIV misuse: same msg -> same synth_nonce");
+    check(memcmp(c1,  c2,  64) != 0, "SIV misuse: diff msg -> diff ciphertext");
 }
 
-/* ── Test: round-trip ── */
 void test_roundtrip(void) {
     uint8_t key[32], nonce[12], msg[TEST_SIZE], recovered[TEST_SIZE];
     uint8_t snonce[12], cipher[TEST_SIZE], tag[16];
-    random_bytes(key, 32); random_bytes(nonce, 12); random_bytes(msg, TEST_SIZE);
+    random_bytes(key,32); random_bytes(nonce,12); random_bytes(msg,TEST_SIZE);
     do_encrypt(snonce, cipher, tag, msg, TEST_SIZE, NULL, 0, key, nonce);
     int r = do_decrypt(recovered, snonce, cipher, TEST_SIZE, tag, NULL, 0, key);
     check(r == 0 && memcmp(msg, recovered, TEST_SIZE) == 0, "roundtrip: plaintext recovered");
 }
 
-/* ── Test: multiblock boundary sizes ── */
 void test_multiblock(void) {
     uint8_t key[32], nonce[12];
-    random_bytes(key, 32); random_bytes(nonce, 12);
-    static const size_t sizes[] = { 0, 1, 31, 32, 33, 63, 64, 65, 127, 128, 129, 256, 513 };
+    random_bytes(key,32); random_bytes(nonce,12);
+    static const size_t sizes[] = {0,1,31,32,33,63,64,65,127,128,129,256,513};
     int ok = 1;
     for (size_t s = 0; s < sizeof(sizes)/sizeof(sizes[0]); s++) {
         size_t n = sizes[s];
@@ -130,7 +111,7 @@ void test_multiblock(void) {
         uint8_t *cipher = n ? malloc(n) : NULL;
         uint8_t *recovered = n ? malloc(n) : NULL;
         uint8_t snonce[12], tag[16];
-        if (n) { random_bytes(msg, n); }
+        if (n) random_bytes(msg, n);
         do_encrypt(snonce, cipher, tag, msg, n, NULL, 0, key, nonce);
         int r = do_decrypt(recovered, snonce, cipher, n, tag, NULL, 0, key);
         if (r != 0 || (n && memcmp(msg, recovered, n) != 0)) {
@@ -141,49 +122,40 @@ void test_multiblock(void) {
     check(ok, "multiblock: all boundary sizes round-trip correctly");
 }
 
-/* ── Test: avalanche ── */
 void test_avalanche(void) {
     uint8_t key[32], nonce[12], msg[TEST_SIZE], msg2[TEST_SIZE];
     uint8_t sn1[12], sn2[12], tag1[16], tag2[16], cipher[TEST_SIZE];
-    random_bytes(key, 32); random_bytes(nonce, 12); random_bytes(msg, TEST_SIZE);
+    random_bytes(key,32); random_bytes(nonce,12); random_bytes(msg,TEST_SIZE);
     memcpy(msg2, msg, TEST_SIZE);
     do_encrypt(sn1, cipher, tag1, msg,  TEST_SIZE, NULL, 0, key, nonce);
     msg2[0] ^= 1;
     do_encrypt(sn2, cipher, tag2, msg2, TEST_SIZE, NULL, 0, key, nonce);
-    int diff_tag  = count_bits_diff(tag1, tag2, 16);
-    int diff_snonce = count_bits_diff(sn1, sn2, 12);
+    int diff_tag    = count_bits_diff(tag1, tag2, 16);
+    int diff_snonce = count_bits_diff(sn1,  sn2,  12);
     int ok = (diff_tag >= 40 && diff_tag <= 88) && (diff_snonce > 0);
     printf("[%s] avalanche: tag %d/128 bits differ, synth_nonce %d/96 bits differ\n",
-           ok?"PASS":"FAIL", diff_tag, diff_snonce);
+           ok ? "PASS" : "FAIL", diff_tag, diff_snonce);
     if (ok) g_pass++; else g_fail++;
 }
 
-/* ── Test: forgery detection ── */
 void test_forgery(void) {
     uint8_t key[32], nonce[12], msg[TEST_SIZE], out[TEST_SIZE];
     uint8_t snonce[12], cipher[TEST_SIZE], tag[16];
     random_bytes(key,32); random_bytes(nonce,12); random_bytes(msg,TEST_SIZE);
     do_encrypt(snonce, cipher, tag, msg, TEST_SIZE, NULL, 0, key, nonce);
-
-    /* Tamper ciphertext */
     uint8_t c2[TEST_SIZE]; memcpy(c2, cipher, TEST_SIZE); c2[0] ^= 1;
     int r = do_decrypt(out, snonce, c2, TEST_SIZE, tag, NULL, 0, key);
     check(r == -1, "forgery: cipher tamper detected");
     uint8_t zero[TEST_SIZE]; memset(zero, 0, TEST_SIZE);
     check(memcmp(out, zero, TEST_SIZE) == 0, "forgery: output zeroed on failure");
-
-    /* Tamper tag */
     uint8_t t2[16]; memcpy(t2, tag, 16); t2[7] ^= 0xFF;
     r = do_decrypt(out, snonce, cipher, TEST_SIZE, t2, NULL, 0, key);
     check(r == -1, "forgery: tag tamper detected");
-
-    /* Tamper synth_nonce */
     uint8_t sn2[12]; memcpy(sn2, snonce, 12); sn2[0] ^= 1;
     r = do_decrypt(out, sn2, cipher, TEST_SIZE, tag, NULL, 0, key);
     check(r == -1, "forgery: synth_nonce tamper detected");
 }
 
-/* ── Test: AAD authenticated ── */
 void test_aad(void) {
     uint8_t key[32], nonce[12], msg[64], out[64], aad[16];
     uint8_t snonce[12], cipher[64], tag[16];
@@ -195,7 +167,6 @@ void test_aad(void) {
     check(r == -1, "AAD: tampered AAD detected");
 }
 
-/* ── Test: domain separation ── */
 void test_domain_sep(void) {
     uint8_t key[32], nonce[12];
     uint8_t sn1[12], sn2[12], tag1[16], tag2[16], cipher[2];
@@ -206,7 +177,6 @@ void test_domain_sep(void) {
     check(memcmp(tag1, tag2, 16) != 0, "domain sep: AAD vs CT not interchangeable");
 }
 
-/* ── Test: wrong key / nonce ── */
 void test_wrong_credentials(void) {
     uint8_t key[32], key2[32], nonce[12], nonce2[12];
     uint8_t msg[64], out[64], snonce[12], cipher[64], tag[16];
@@ -214,15 +184,13 @@ void test_wrong_credentials(void) {
     random_bytes(nonce,12); memcpy(nonce2,nonce,12); nonce2[0]^=1;
     random_bytes(msg,64);
     do_encrypt(snonce, cipher, tag, msg, 64, NULL, 0, key, nonce);
-    check(do_decrypt(out, snonce, cipher, 64, tag, NULL, 0, key2)  == -1, "wrong key detected");
-    /* Wrong external nonce: SIV derives different synth_nonce, so auth fails */
+    check(do_decrypt(out, snonce, cipher, 64, tag, NULL, 0, key2) == -1, "wrong key detected");
     uint8_t snonce_bad[12], cipher_bad[64], tag_bad[16];
     do_encrypt(snonce_bad, cipher_bad, tag_bad, msg, 64, NULL, 0, key, nonce2);
     check(do_decrypt(out, snonce_bad, cipher_bad, 64, tag_bad, NULL, 0, key) == 0,
           "wrong ext nonce: decrypt with correct snonce succeeds");
 }
 
-/* ── Test: empty message ── */
 void test_empty(void) {
     uint8_t key[32], nonce[12], sn1[12], sn2[12], tag1[16], tag2[16], dummy[1];
     random_bytes(key,32); random_bytes(nonce,12);
@@ -235,7 +203,6 @@ void test_empty(void) {
     check(memcmp(tag1, tag2, 16) != 0, "empty: tag differs with different AAD");
 }
 
-/* ── Test: counter overflow ── */
 void test_counter_overflow(void) {
     slimiron_ctx ctx;
     uint8_t key[32]={0}, nonce[12]={0};
@@ -245,7 +212,6 @@ void test_counter_overflow(void) {
     check(r == -2, "counter overflow: slimiron_block returns -2");
 }
 
-/* ── Test: slim_zero ── */
 void test_slim_zero(void) {
     uint8_t buf[64]; memset(buf, 0xAB, 64);
     slim_zero(buf, 64);
@@ -254,17 +220,15 @@ void test_slim_zero(void) {
     check(ok, "slim_zero: buffer fully zeroed");
 }
 
-/* ── Test: crypto_verify_16 ── */
 void test_verify16(void) {
     uint8_t a[16]={0}, b[16]={0};
-    check(crypto_verify_16(a,b) ==  0, "verify16: equal → 0");
+    check(crypto_verify_16(a,b) ==  0, "verify16: equal -> 0");
     b[15]^=1;
-    check(crypto_verify_16(a,b) == -1, "verify16: differ last byte → -1");
+    check(crypto_verify_16(a,b) == -1, "verify16: differ last byte -> -1");
     b[15]^=1; b[0]^=0xFF;
-    check(crypto_verify_16(a,b) == -1, "verify16: differ first byte → -1");
+    check(crypto_verify_16(a,b) == -1, "verify16: differ first byte -> -1");
 }
 
-/* ── Test: SIMAC fast path ── */
 void test_simac_fast_path(void) {
     uint8_t key[32], nonce[12], mac_key[32];
     uint8_t data[SIMAC_RATE_BYTES * 4];
@@ -274,25 +238,21 @@ void test_simac_fast_path(void) {
     slimiron_init(&c, key, nonce);
     slimiron_derive_mac_key(&c, mac_key);
     slim_zero(&c, sizeof(c));
-
     simac_ctx m1, m2;
     simac_init(&m1, mac_key, nonce);
     simac_absorb(&m1, data, sizeof(data));
     simac_absorb_len(&m1, sizeof(data));
     simac_domain(&m1, SIMAC_DOMAIN_CT);
     simac_finalize(&m1, tag1);
-
     simac_init(&m2, mac_key, nonce);
     for (size_t i = 0; i < sizeof(data); i++) simac_absorb(&m2, data+i, 1);
     simac_absorb_len(&m2, sizeof(data));
     simac_domain(&m2, SIMAC_DOMAIN_CT);
     simac_finalize(&m2, tag2);
-
     check(memcmp(tag1, tag2, 16) == 0, "SIMAC fast path: bulk == byte-by-byte");
     slim_zero(mac_key,32); slim_zero(&m1,sizeof(m1)); slim_zero(&m2,sizeof(m2));
 }
 
-/* ── Test: capacity doubled — different capacity constants give different tags ── */
 void test_capacity_isolation(void) {
     uint8_t key[32], nonce[12], mac_key[32];
     uint8_t data[64], tag1[16], tag2[16];
@@ -301,23 +261,18 @@ void test_capacity_isolation(void) {
     slimiron_init(&c, key, nonce);
     slimiron_derive_mac_key(&c, mac_key);
     slim_zero(&c, sizeof(c));
-
     simac_ctx m1, m2;
     simac_init(&m1, mac_key, nonce);
     simac_absorb(&m1, data, 64);
     simac_finalize(&m1, tag1);
-
-    /* Manually corrupt capacity word to simulate different init */
     simac_init(&m2, mac_key, nonce);
-    m2.state[8] ^= 0xDEADBEEF;   /* corrupt capacity */
+    m2.state[8] ^= 0xDEADBEEF;
     simac_absorb(&m2, data, 64);
     simac_finalize(&m2, tag2);
-
-    check(memcmp(tag1, tag2, 16) != 0, "capacity: different capacity → different tag");
+    check(memcmp(tag1, tag2, 16) != 0, "capacity: different capacity -> different tag");
     slim_zero(mac_key,32);
 }
 
-/* ── Test: xor64 ── */
 void test_xor64(void) {
     uint8_t src[64], key[64], dst[64], ref[64];
     random_bytes(src,64); random_bytes(key,64);
@@ -326,7 +281,6 @@ void test_xor64(void) {
     check(memcmp(dst,ref,64)==0, "xor64: matches reference");
 }
 
-/* ── Test: collision ── */
 void test_collision(void) {
     uint8_t key[32], nonce[12], msg[TEST_SIZE], cipher[TEST_SIZE];
     uint8_t (*tags)[16] = malloc((size_t)TEST_ITER * 16);
@@ -345,15 +299,80 @@ void test_collision(void) {
     free(tags);
 }
 
-/* ── Main ── */
+/* ── v0.3.0 new tests ── */
+
+void test_inplace_alias(void) {
+    uint8_t key[32], nonce[12], buf[64], snonce[12], tag[16];
+    random_bytes(key,32); random_bytes(nonce,12); random_bytes(buf,64);
+    int r = slimiron_aead_encrypt(snonce, buf, tag, buf, 64, NULL, 0, key, nonce);
+    check(r == -3, "alias guard: msg==cipher returns -3");
+    r = slimiron_aead_encrypt(snonce, buf, tag, buf, 0, NULL, 0, key, nonce);
+    check(r == 0,  "alias guard: mlen==0 with same ptr is OK");
+}
+
+void test_wire_version(void) {
+    uint8_t key[32], nonce[12], msg[32], out[32];
+    uint8_t snonce[12], cipher[32], tag[16];
+    random_bytes(key,32); random_bytes(nonce,12); random_bytes(msg,32);
+    do_encrypt(snonce, cipher, tag, msg, 32, NULL, 0, key, nonce);
+    int r = slimiron_aead_decrypt(out, snonce, cipher, 32, tag, NULL, 0, key,
+                                   SLIMIRON_WIRE_VERSION);
+    check(r == 0,  "wire version: correct version accepted");
+    r = slimiron_aead_decrypt(out, snonce, cipher, 32, tag, NULL, 0, key,
+                               (uint8_t)(SLIMIRON_WIRE_VERSION ^ 0xFF));
+    check(r == -4, "wire version: wrong version returns -4");
+}
+
+void test_finalize_contract(void) {
+    uint8_t key[32], nonce[12], mac_key[32];
+    uint8_t data[48], tag1[16], tag2[16];
+    random_bytes(key,32); random_bytes(nonce,12); random_bytes(data,48);
+    slimiron_ctx c;
+    slimiron_init(&c, key, nonce);
+    slimiron_derive_mac_key(&c, mac_key);
+    slim_zero(&c, sizeof(c));
+    simac_ctx m1, m2;
+    simac_init(&m1, mac_key, nonce);
+    simac_absorb(&m1, data, 48);
+    simac_absorb_len(&m1, 48);
+    simac_pad(&m1);
+    simac_domain(&m1, SIMAC_DOMAIN_CT);
+    simac_finalize(&m1, tag1);
+    simac_init(&m2, mac_key, nonce);
+    simac_absorb(&m2, data, 48);
+    simac_absorb_len(&m2, 48);
+    simac_pad(&m2);
+    simac_domain(&m2, SIMAC_DOMAIN_CT);
+    simac_finalize(&m2, tag2);
+    check(memcmp(tag1, tag2, 16) == 0, "finalize contract: identical data -> identical tag");
+    slim_zero(mac_key,32);
+}
+
+void test_ctx_layout(void) {
+    size_t expected = 16 * sizeof(uint32_t) + 64;
+    check(sizeof(slimiron_ctx) == expected,
+          "ctx layout: slimiron_ctx has no pos field (correct size)");
+}
+
+void test_round_count(void) {
+    check(SLIMIRON_ROUNDS == 14, "rounds: SLIMIRON_ROUNDS == 14 (Fix #6)");
+    check(SIMAC_ROUNDS    == 10, "rounds: SIMAC_ROUNDS == 10 (unchanged)");
+}
+
+void test_overhead_constant(void) {
+    check(SLIMIRON_OVERHEAD == 29u, "overhead: SLIMIRON_OVERHEAD == 29 (1+12+16)");
+}
+
 int main(void) {
     srand(1234);
-    printf("Slimiron v0.2.2 test suite\n");
+    printf("Slimiron v0.3.0 test suite\n");
     printf("SlimMix rotations   : (15,11,9,5)\n");
-    printf("Stream rounds       : %d\n", SLIMIRON_ROUNDS);
+    printf("Stream rounds       : %d  (raised from 10 in v0.3.0)\n", SLIMIRON_ROUNDS);
     printf("SIMAC rounds        : %d\n", SIMAC_ROUNDS);
     printf("SIMAC rate/capacity : %d/%d bytes\n", SIMAC_RATE_BYTES, 64-SIMAC_RATE_BYTES);
     printf("SIV mode            : enabled (nonce-misuse resistant)\n");
+    printf("Wire version        : 0x%02x  overhead: %u bytes\n",
+           SLIMIRON_WIRE_VERSION, SLIMIRON_OVERHEAD);
 #if SLIM_HAS_AVX2
     printf("XOR path            : AVX2\n\n");
 #else
@@ -383,6 +402,14 @@ int main(void) {
     test_simac_fast_path();
     test_capacity_isolation();
     test_xor64();
+
+    /* v0.3.0 new */
+    test_inplace_alias();
+    test_wire_version();
+    test_finalize_contract();
+    test_ctx_layout();
+    test_round_count();
+    test_overhead_constant();
 
     /* Stress */
     test_collision();
